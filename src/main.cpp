@@ -3,7 +3,6 @@
 #include <DNSServer.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
-#include <esp_gap_ble_api.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <Preferences.h>
@@ -13,6 +12,11 @@
 
 #define PIN_LED 8
 #define PIN_BUTTON 9
+#define FIRMWARE_VER 1  // 改此版本号 = 烧录后自动清 NVS
+
+// ========== BLE 出厂默认值 (可通过配置页修改) ==========
+#define DEFAULT_BLE_UUID "3132A97F-FA40-D56B-04E0-8562E0D3AEE6"
+#define DEFAULT_BLE_NAME "PunchDevice"
 
 Preferences preferences;
 DNSServer dns;
@@ -26,14 +30,9 @@ String macAddress;
 uint8_t macArray[6];
 
 // ========== BLE 配置变量 ==========
-bool enableBLE = false;
-String bleMacStr;
-String bleRawStr;
-uint8_t bleMac[6];
-uint8_t bleRaw[31] = {0};
-bool rawMoreThan31 = false;
-uint8_t bleRawExt[31] = {0};
-uint8_t bleRawExtLen = 0;
+bool enableBLE = true;                              // 默认开启
+String bleUuidStr = DEFAULT_BLE_UUID;
+String bleName    = DEFAULT_BLE_NAME;
 bool bleActive = false;
 
 bool enableDNS = true;
@@ -64,131 +63,84 @@ bool convertMacStringToArray() {
 
 // ==================== BLE 功能 ====================
 
-// 解析逗号分隔的十六进制字符串为字节数组
-// 支持格式: "02,01,06,FF,..." 或 "0x02,0x01,0x06,0xFF,..."
-int parseBleRawData(const String &raw, uint8_t *output, int maxLen) {
-    String cleaned = raw;
-    cleaned.replace(" ", "");
-    cleaned.replace("0x", "");
-    cleaned.replace("0X", "");
-
-    int count = 0;
-    int start = 0;
-    while (start < cleaned.length() && count < maxLen) {
-        int end = cleaned.indexOf(',', start);
-        if (end == -1) end = cleaned.length();
-        String hexByte = cleaned.substring(start, end);
-        if (hexByte.length() > 0) {
-            output[count++] = (uint8_t)strtol(hexByte.c_str(), nullptr, 16);
-        }
-        start = end + 1;
-    }
-    return count;
-}
-
-// 将 MAC 字符串 "aa:bb:cc:dd:ee:ff" 转换为 6 字节数组 (用于 BLE)
-bool parseBleMac(const String &macStr, uint8_t *outMac) {
-    if (macStr.length() != 17) return false;
-    const char *str = macStr.c_str();
+// 从 UUID 字符串派生 MAC 地址 (取前 12 hex 字符)
+// UUID "3132A97F-FA40-D56B-..." -> MAC "31:32:A9:7F:FA:40"
+// MAC   "F4:2A:7D:E0:A2:C3"   -> MAC "F4:2A:7D:E0:A2:C3"
+void uuidToMac(const String &input, uint8_t *outMac) {
+    String hex = input;
+    hex.replace("-", "");
+    hex.replace(":", "");
+    hex.toUpperCase();
+    // 确保至少有 12 个 hex 字符
+    while (hex.length() < 12) hex += "0";
+    const char *str = hex.c_str();
     for (int i = 0; i < 6; i++) {
         unsigned int byteVal;
-        if (sscanf(str, "%02x", &byteVal) != 1) return false;
+        sscanf(str, "%02x", &byteVal);
         outMac[i] = (uint8_t)byteVal;
-        str += 3;
+        str += 2;
     }
-    return true;
 }
 
-// 启动 BLE 广播模拟
+// 启动 BLE 广播 (MAC 自动从 UUID 派生)
 bool startBLE() {
-    if (!enableBLE || bleMacStr.length() != 17 || bleRawStr.length() < 2) {
-        ESP_LOGD(TAG, "BLE: Invalid config, skipping");
-        return false;
-    }
+    if (bleUuidStr.length() < 2) bleUuidStr = DEFAULT_BLE_UUID;
+    if (bleName.length() < 1)    bleName    = DEFAULT_BLE_NAME;
 
-    if (!parseBleMac(bleMacStr, bleMac)) {
-        ESP_LOGD(TAG, "BLE: Invalid MAC format");
-        return false;
-    }
+    String uuid = bleUuidStr;
+    uuid.toUpperCase();
 
-    // 清空 raw 数组
-    memset(bleRaw, 0, sizeof(bleRaw));
-    memset(bleRawExt, 0, sizeof(bleRawExt));
-    rawMoreThan31 = false;
-    bleRawExtLen = 0;
+    // 从 UUID 自动派生 MAC
+    uint8_t mac[6];
+    uuidToMac(bleUuidStr, mac);
 
-    int totalBytes = parseBleRawData(bleRawStr, bleRaw, 62);
-    if (totalBytes <= 0) {
-        ESP_LOGD(TAG, "BLE: Failed to parse raw data");
-        return false;
-    }
-
-    ESP_LOGD(TAG, "BLE: Parsed %d raw bytes", totalBytes);
-
-    // 超过 31 字节的作为扫描响应数据
-    if (totalBytes > 31) {
-        rawMoreThan31 = true;
-        bleRawExtLen = totalBytes - 31;
-        memcpy(bleRawExt, bleRaw + 31, bleRawExtLen);
-        ESP_LOGD(TAG, "BLE: Scan response data: %d bytes", bleRawExtLen);
-    }
+    ESP_LOGD(TAG, "BLE: UUID: %s", uuid.c_str());
+    ESP_LOGD(TAG, "BLE: Derived MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     // 计算 base mac (ESP32-C3 为 TWO_UNIVERSAL_MAC_ADDR)
     uint8_t baseMac[6];
-    memcpy(baseMac, bleMac, 6);
+    memcpy(baseMac, mac, 6);
     if (UNIVERSAL_MAC_ADDR_NUM == FOUR_UNIVERSAL_MAC_ADDR) {
         baseMac[5] -= 2;
     } else if (UNIVERSAL_MAC_ADDR_NUM == TWO_UNIVERSAL_MAC_ADDR) {
         baseMac[5] -= 1;
     }
-    ESP_LOGD(TAG, "BLE: Setting base MAC: %02x:%02x:%02x:%02x:%02x:%02x",
-             baseMac[0], baseMac[1], baseMac[2],
-             baseMac[3], baseMac[4], baseMac[5]);
 
     esp_err_t macErr = esp_base_mac_addr_set(baseMac);
     if (macErr != ESP_OK) {
-        ESP_LOGD(TAG, "BLE: esp_base_mac_addr_set failed: %s", esp_err_to_name(macErr));
+        ESP_LOGW(TAG, "BLE: esp_base_mac_addr_set failed: %s", esp_err_to_name(macErr));
     }
 
-    // 初始化 BLE
-    BLEDevice::init("");
-    ESP_LOGD(TAG, "BLE: Device initialized, target MAC: %s", bleMacStr.c_str());
-
+    BLEDevice::init(bleName.c_str());
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-
-    // 清空默认扫描响应数据
-    BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
-    pAdvertising->setScanResponseData(oScanResponseData);
-
-    // 清空默认广播数据
-    BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
-    pAdvertising->setAdvertisementData(oAdvertisementData);
-
-    // 直接底层 API 设置抓取到的原始广播数据
-    esp_err_t errRc = ::esp_ble_gap_config_adv_data_raw(bleRaw, 31);
-    if (errRc != ESP_OK) {
-        ESP_LOGD(TAG, "BLE: esp_ble_gap_config_adv_data_raw failed: %d", errRc);
-        bleActive = false;
+    if (!pAdvertising) {
+        ESP_LOGE(TAG, "BLE: getAdvertising() returned null");
         return false;
     }
 
-    // 超过 31 字节的作为扫描响应数据
-    if (rawMoreThan31) {
-        errRc = ::esp_ble_gap_config_scan_rsp_data_raw(bleRawExt, bleRawExtLen);
-        if (errRc != ESP_OK) {
-            ESP_LOGD(TAG, "BLE: esp_ble_gap_config_scan_rsp_data_raw failed: %d", errRc);
-        }
-    }
+    BLEUUID bleUuid(uuid.c_str());
+    BLEAdvertisementData advData;
+    advData.setCompleteServices(bleUuid);
+    pAdvertising->setAdvertisementData(advData);
+
+    BLEAdvertisementData scanRsp;
+    scanRsp.setName(bleName.c_str());
+    pAdvertising->setScanResponseData(scanRsp);
 
     pAdvertising->start();
     bleActive = true;
-    ESP_LOGD(TAG, "BLE: Advertising started successfully");
-    ESP_LOGD(TAG, "BLE:     MAC: %s", bleMacStr.c_str());
-    ESP_LOGD(TAG, "BLE: Raw data: %d bytes", totalBytes);
+    // LED 快闪表示 BLE 已启动
+    digitalWrite(PIN_LED, LOW);  delay(80);
+    digitalWrite(PIN_LED, HIGH); delay(80);
+    digitalWrite(PIN_LED, LOW);  delay(80);
+    digitalWrite(PIN_LED, HIGH);
+    ESP_LOGI(TAG, "BLE: Advertising started");
+    ESP_LOGI(TAG, "BLE:  Name: %s", bleName.c_str());
+    ESP_LOGI(TAG, "BLE:  UUID: %s", uuid.c_str());
     return true;
 }
 
-// 停止 BLE 广播
 void stopBLE() {
     if (bleActive) {
         BLEDevice::getAdvertising()->stop();
@@ -196,18 +148,6 @@ void stopBLE() {
         bleActive = false;
         ESP_LOGD(TAG, "BLE: Stopped");
     }
-}
-
-// 停止伪装 WiFi AP，回退到默认管理热点
-void stopWiFiAP() {
-    server.end();
-    WiFi.softAPdisconnect();
-    delay(300);
-    WiFi.softAP("WIFI MANAGER");
-    server.begin();
-    enableDNS = true;
-    digitalWrite(PIN_LED, HIGH);
-    ESP_LOGD(TAG, "WiFi: Fallback to WIFI MANAGER");
 }
 
 bool createAP() {
@@ -223,8 +163,14 @@ bool createAP() {
         server.end();
         WiFi.softAPdisconnect();
         if (WiFi.softAP(ssid, password)) {
-            esp_err_t set_power_err = esp_wifi_set_max_tx_power(34);
-            ESP_LOGD(TAG, "esp_wifi_set_max_tx_power: %s", esp_err_to_name(set_power_err));
+            // 降低发射功率 (4 ≈ 1dBm, 2米够用, 几乎不发热)
+            esp_err_t set_power_err = esp_wifi_set_max_tx_power(4);
+            ESP_LOGD(TAG, "esp_wifi_set_max_tx_power(4): %s", esp_err_to_name(set_power_err));
+            // Beacon 间隔从 100ms 拉到 500ms, 减少射频占空比
+            wifi_config_t conf;
+            esp_wifi_get_config(WIFI_IF_AP, &conf);
+            conf.ap.beacon_interval = 500;
+            esp_wifi_set_config(WIFI_IF_AP, &conf);
             digitalWrite(PIN_LED, LOW);
             ESP_LOGD(TAG, "AP created successfully");
             ESP_LOGD(TAG, "#     SSID: %s", ssid.c_str());
@@ -245,15 +191,19 @@ bool createAP() {
 }
 
 void initWebServer() {
-    if (!LittleFS.begin()) {
-        ESP_LOGD(TAG, "Failed to initialize LittleFS");
-        return;
+    bool fsOk = LittleFS.begin();
+    if (!fsOk) {
+        ESP_LOGW(TAG, "LittleFS failed, serving minimal page");
     }
 
-    server.serveStatic("/", LittleFS, "/");
-
-    server.on("/", HTTP_GET,
-              [](AsyncWebServerRequest *request) { request->send(LittleFS, "/index.html", "text/html"); });
+    server.on("/", HTTP_GET, [fsOk](AsyncWebServerRequest *request) {
+        if (fsOk) {
+            request->send(LittleFS, "/index.html", "text/html");
+        } else {
+            request->send(200, "text/html",
+                "<h2>文件系统未烧录</h2><p>请执行: pio run --target uploadfs</p>");
+        }
+    });
 
     server.onNotFound([](AsyncWebServerRequest *request) { request->redirect("/"); });
 
@@ -264,8 +214,7 @@ void initWebServer() {
         String _password_str;
         String _mac_str;
         String _ble_enable_str;
-        String _ble_mac_str;
-        String _ble_raw_str;
+        String _ble_uuid_str;
 
         for (int i = 0; i < request->params(); i++) {
             AsyncWebParameter *p = request->getParam(i);
@@ -275,8 +224,7 @@ void initWebServer() {
             if (p->name() == "wifi_password")    _password_str = p->value();
             if (p->name() == "wifi_mac")         _mac_str = p->value();
             if (p->name() == "ble_enable")       _ble_enable_str = p->value();
-            if (p->name() == "ble_mac")          _ble_mac_str = p->value();
-            if (p->name() == "ble_raw")          _ble_raw_str = p->value();
+            if (p->name() == "ble_uuid")         _ble_uuid_str = p->value();
         }
 
         bool wifiEnableReq = (_wifi_enable_str == "on" || _wifi_enable_str == "1" || _wifi_enable_str == "true");
@@ -284,7 +232,7 @@ void initWebServer() {
 
         // ---- WiFi 校验 ----
         if (wifiEnableReq) {
-            if (_ssid_str.length() < 1 || _ssid_str.length() > 63) {
+            if (_ssid_str.length() < 1 || _ssid_str.length() > 32) {
                 request->send(200, "text/plain", "SSID格式错误(1-32字符)"); return;
             }
             if (_password_str.length() > 0 && _password_str.length() < 8) {
@@ -297,24 +245,18 @@ void initWebServer() {
             password = _password_str;
             macAddress = _mac_str;
         }
+        enableWiFi = wifiEnableReq;
 
         // ---- BLE 校验 ----
         if (bleEnableReq) {
-            if (_ble_mac_str.length() != 17) {
-                request->send(200, "text/plain", "蓝牙MAC地址格式错误(aa:bb:cc:dd:ee:ff)"); return;
-            }
-            if (_ble_raw_str.length() < 2) {
-                request->send(200, "text/plain", "蓝牙广播数据不能为空"); return;
+            if (_ble_uuid_str.length() < 2) {
+                request->send(200, "text/plain", "蓝牙UUID不能为空"); return;
             }
             enableBLE = true;
-            bleMacStr = _ble_mac_str;
-            bleRawStr = _ble_raw_str;
+            bleUuidStr = _ble_uuid_str;
         } else {
             enableBLE = false;
-            stopBLE();
         }
-
-        enableWiFi = wifiEnableReq;
 
         // ---- 持久化到 NVS ----
         preferences.begin("wifi_config", false);
@@ -324,41 +266,16 @@ void initWebServer() {
         preferences.putString("mac", macAddress);
         preferences.putBool("ble_enable", enableBLE);
         if (enableBLE) {
-            preferences.putString("ble_mac", bleMacStr);
-            preferences.putString("ble_raw", bleRawStr);
+            preferences.putString("ble_uuid", bleUuidStr);
         } else {
-            preferences.remove("ble_mac");
-            preferences.remove("ble_raw");
+            preferences.remove("ble_uuid");
         }
         preferences.end();
 
-        // ---- 执行 WiFi ----
-        String resultMsg = "";
-        if (enableWiFi) {
-            if (createAP()) {
-                resultMsg += "✅ WiFi伪装已启动";
-            } else {
-                stopWiFiAP();
-                resultMsg += "⚠️ WiFi创建失败,已回退管理热点";
-            }
-        } else {
-            stopWiFiAP();
-            resultMsg += "⏸️ WiFi已关闭";
-        }
-
-        // ---- 执行 BLE ----
-        if (enableBLE) {
-            delay(200);
-            if (startBLE()) {
-                resultMsg += " | ✅ 蓝牙广播已启动";
-            } else {
-                resultMsg += " | ⚠️ 蓝牙启动失败";
-            }
-        } else {
-            resultMsg += " | ⏸️ 蓝牙已关闭";
-        }
-
-        request->send(200, "text/plain", resultMsg);
+        // ---- 保存后重启生效 ----
+        request->send(200, "text/plain", "配置已保存,设备重启中...");
+        delay(500);
+        ESP.restart();
     });
     server.begin();
 }
@@ -368,9 +285,19 @@ void setup() {
     pinMode(PIN_BUTTON, INPUT_PULLUP);
     digitalWrite(PIN_LED, HIGH);
 
-    // ---- 读取 NVS 中保存的配置 ----
+    // ---- 读取 NVS 中保存的 WiFi + BLE 配置 ----
     if (!preferences.begin("wifi_config", false)) {
         ESP_LOGD(TAG, "Failed to initialize preferences");
+    }
+
+    // 版本检测: 固件更新后自动清 NVS, 避免旧配置导致异常
+    int savedVer = preferences.getInt("fw_ver", 0);
+    if (savedVer != FIRMWARE_VER) {
+        ESP_LOGW(TAG, "Firmware updated (v%d -> v%d), clearing NVS", savedVer, FIRMWARE_VER);
+        preferences.clear();
+        preferences.putInt("fw_ver", FIRMWARE_VER);
+        preferences.end();
+        preferences.begin("wifi_config", false);
     }
 
     enableWiFi = preferences.getBool("wifi_enable", true);
@@ -378,39 +305,51 @@ void setup() {
     password = preferences.getString("password", "");
     macAddress = preferences.getString("mac", "");
 
-    enableBLE = preferences.getBool("ble_enable", false);
-    bleMacStr = preferences.getString("ble_mac", "");
-    bleRawStr = preferences.getString("ble_raw", "");
+    enableBLE  = preferences.getBool("ble_enable", true);   // 默认开启
+    bleUuidStr = preferences.getString("ble_uuid", DEFAULT_BLE_UUID);
 
     preferences.end();
 
-    // ---- 初始化 WiFi ----
-    WiFi.mode(WIFI_AP);
-
-    if (enableWiFi && ssid.length() > 0 && macAddress.length() == 17) {
-        if (!createAP()) {
-            ESP_LOGD(TAG, "WiFi AP creation failed. Fallback to default");
-            WiFi.softAP("WIFI MANAGER");
-            enableDNS = true;
+    // ---- BLE 必须在 WiFi 之前启动 (ESP32-C3 射频共存) ----
+    ESP_LOGD(TAG, "Starting BLE first (enableBLE=%d)...", enableBLE);
+    if (enableBLE) {
+        if (!startBLE()) {
+            ESP_LOGE(TAG, "BLE start failed!");
         }
-    } else {
-        ESP_LOGD(TAG, "WiFi disabled or no credentials. Creating default AP");
-        WiFi.softAP("WIFI MANAGER");
-        enableDNS = true;
     }
 
-    // ---- 启动 Web 服务器和 DNS ----
-    initWebServer();
-    dns.start(53, "*", WiFi.softAPIP());
+    // ---- 初始化 WiFi (关闭时完全不发射) ----
+    if (enableWiFi) {
+        WiFi.mode(WIFI_AP);
 
-    // ---- 启动 BLE (在 WiFi 初始化之后) ----
-    if (enableBLE && bleMacStr.length() == 17 && bleRawStr.length() > 0) {
-        delay(500);  // 等 WiFi 稳定后再启动 BLE
-        if (startBLE()) {
-            ESP_LOGD(TAG, "BLE started on boot");
+        if (ssid.length() > 0 && macAddress.length() == 17) {
+            if (!createAP()) {
+                ESP_LOGD(TAG, "WiFi AP creation failed. Fallback to default");
+                WiFi.softAP("WIFI MANAGER");
+                esp_wifi_set_max_tx_power(4);
+                wifi_config_t conf;
+                esp_wifi_get_config(WIFI_IF_AP, &conf);
+                conf.ap.beacon_interval = 500;
+                esp_wifi_set_config(WIFI_IF_AP, &conf);
+                enableDNS = true;
+            }
         } else {
-            ESP_LOGD(TAG, "BLE start failed on boot");
+            ESP_LOGD(TAG, "No WiFi credentials. Creating default AP");
+            WiFi.softAP("WIFI MANAGER");
+            esp_wifi_set_max_tx_power(4);
+            wifi_config_t conf;
+            esp_wifi_get_config(WIFI_IF_AP, &conf);
+            conf.ap.beacon_interval = 500;
+            esp_wifi_set_config(WIFI_IF_AP, &conf);
+            enableDNS = true;
         }
+
+        // ---- 启动 Web 服务器和 DNS ----
+        initWebServer();
+        dns.start(53, "*", WiFi.softAPIP());
+    } else {
+        ESP_LOGD(TAG, "WiFi disabled, not broadcasting");
+        WiFi.mode(WIFI_OFF);
     }
 }
 

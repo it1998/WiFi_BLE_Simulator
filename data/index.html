@@ -6,212 +6,299 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WiFi/蓝牙设置</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin: 0;
-            padding: 20px 0;
             min-height: 100vh;
-            background: #f5f5f5;
+            padding: 32px 16px 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        h2 {
+
+        .header {
             text-align: center;
-            color: #333;
-            margin: 10px 0;
+            margin-bottom: 24px;
         }
-        .section-title {
-            font-size: 14px;
-            color: #666;
-            text-align: center;
-            margin-bottom: 8px;
-            padding: 4px 12px;
-            background: #e8e8e8;
-            border-radius: 12px;
-            display: inline-block;
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.5px;
         }
-        .container {
-            display: flex;
-            flex-flow: column;
-            padding: 20px;
+        .header .subtitle {
+            font-size: 12px;
+            color: rgba(255,255,255,0.7);
+            margin-top: 4px;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 400px;
             background: #fff;
-            border-radius: 10px;
-            width: 86%;
-            max-width: 380px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            overflow: hidden;
             margin-bottom: 16px;
         }
-        input, textarea {
-            padding: 12px;
-            margin: 8px 0;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 15px;
-            font-family: monospace;
-            outline: none;
-            transition: border-color 0.2s;
+
+        /* ---- 区块 ---- */
+        .section {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.3s;
         }
-        input:focus, textarea:focus {
-            border-color: #4a90d9;
-        }
-        textarea {
-            resize: vertical;
-            min-height: 60px;
-        }
-        button {
-            padding: 12px;
-            background-color: #007AFF;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 17px;
-            font-weight: 600;
-            margin-top: 12px;
-            transition: background 0.2s;
-        }
-        button:hover {
-            background-color: #0056cc;
-        }
-        button:active {
-            background-color: #004499;
-        }
-        /* 蓝牙开关 */
-        .toggle-row {
+        .section:last-of-type { border-bottom: none; }
+        .section.wifi { border-left: 4px solid #4a90d9; }
+        .section.ble  { border-left: 4px solid #34c759; }
+
+        .section-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 8px 0;
-            margin: 4px 0;
+            margin-bottom: 14px;
         }
-        .toggle-label {
+        .section-header .label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 15px;
-            color: #333;
-            font-weight: 500;
+            font-weight: 600;
+            color: #222;
         }
+        .section-header .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .section-header .dot.wifi-dot { background: #4a90d9; }
+        .section-header .dot.ble-dot  { background: #34c759; }
+
+        /* ---- 开关 ---- */
         .toggle-switch {
             position: relative;
-            width: 48px;
-            height: 26px;
+            width: 50px; height: 28px;
+            flex-shrink: 0;
         }
         .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-            margin: 0;
-            padding: 0;
+            opacity: 0; width: 0; height: 0;
         }
         .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #ccc;
-            border-radius: 26px;
-            transition: 0.3s;
+            position: absolute; cursor: pointer;
+            inset: 0;
+            background: #d1d1d6;
+            border-radius: 28px;
+            transition: 0.25s ease;
         }
         .slider::before {
             content: "";
             position: absolute;
-            height: 20px;
-            width: 20px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
+            height: 22px; width: 22px;
+            left: 3px; bottom: 3px;
+            background: #fff;
             border-radius: 50%;
-            transition: 0.3s;
+            transition: 0.25s ease;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
         }
-        input:checked + .slider {
-            background-color: #007AFF;
-        }
-        input:checked + .slider::before {
-            transform: translateX(22px);
-        }
-        .ble-section, .wifi-section {
+        input:checked + .slider { background: #34c759; }
+        input:checked + .slider::before { transform: translateX(22px); }
+
+        /* ---- 输入区 ---- */
+        .fields {
             display: none;
+            flex-direction: column;
+            gap: 10px;
+            animation: fadeDown 0.25s ease;
         }
-        .ble-section.active, .wifi-section.active {
-            display: flex;
-            flex-flow: column;
+        .fields.active { display: flex; }
+
+        @keyframes fadeDown {
+            from { opacity: 0; transform: translateY(-6px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
+
+        .input-group {
+            position: relative;
+        }
+        .input-group .tag {
+            position: absolute;
+            top: -7px; left: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #999;
+            background: #fff;
+            padding: 0 5px;
+            z-index: 1;
+            letter-spacing: 0.3px;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 14px 14px 12px;
+            border: 1.5px solid #e5e5ea;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: "SF Mono", "Cascadia Code", monospace;
+            color: #333;
+            background: #fafafa;
+            outline: none;
+            transition: all 0.2s;
+        }
+        input:focus, textarea:focus {
+            border-color: #4a90d9;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(74,144,217,0.1);
+        }
+        .ble input:focus { border-color: #34c759; box-shadow: 0 0 0 3px rgba(52,199,89,0.1); }
+
         .hint {
             font-size: 11px;
-            color: #999;
-            margin: -4px 0 4px 2px;
+            color: #aaa;
+            margin-top: 2px;
+            padding-left: 4px;
+            line-height: 1.4;
         }
-        .divider {
-            height: 1px;
-            background: #e0e0e0;
-            margin: 12px 0 8px 0;
+
+        /* ---- 按钮 ---- */
+        .btn-area {
+            padding: 0 24px 24px;
         }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            transition: all 0.25s;
+            box-shadow: 0 4px 12px rgba(102,126,234,0.35);
+        }
+        button:active {
+            transform: scale(0.97);
+            box-shadow: 0 2px 6px rgba(102,126,234,0.35);
+        }
+
+        /* ---- Toast ---- */
         #popup {
             visibility: hidden;
             position: fixed;
-            bottom: 30px;
+            bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.82);
+            background: rgba(30,30,30,0.9);
             color: #fff;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
+            padding: 14px 28px;
+            border-radius: 25px;
+            font-size: 13px;
             z-index: 999;
-            white-space: nowrap;
             max-width: 90vw;
             text-align: center;
+            backdrop-filter: blur(10px);
+            transition: visibility 0s 0.3s, opacity 0.3s;
+            opacity: 0;
+        }
+        #popup.show {
+            visibility: visible;
+            opacity: 1;
+            transition: visibility 0s, opacity 0.3s;
+        }
+
+        /* ---- 状态卡片 ---- */
+        .status-bar {
+            width: 100%; max-width: 400px;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(8px);
+            border-radius: 12px;
+            padding: 12px 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #fff;
+            margin-top: 4px;
+        }
+        .status-bar .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        .status-bar .status-dot.on { background: #34c759; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.4; }
         }
     </style>
 </head>
 
 <body>
-    <h2>⚙️ WiFi/蓝牙设置</h2>
+    <div class="header">
+        <h1>WiFi / 蓝牙模拟</h1>
+        <div class="subtitle">ESP32-C3 设备配置面板</div>
+    </div>
 
-    <form action="" method="post" id="info_form" class="container">
+    <form action="" method="post" id="info_form" class="card">
 
-        <!-- ===== WiFi 开关 ===== -->
-        <div class="toggle-row">
-            <span class="toggle-label">📶 WiFi 伪装</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="wifi_toggle" name="wifi_enable" checked onchange="toggleSection('wifi')">
-                <span class="slider"></span>
-            </label>
+        <!-- ===== WiFi ===== -->
+        <div class="section wifi">
+            <div class="section-header">
+                <span class="label"><span class="dot wifi-dot"></span>WiFi 伪装</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="wifi_toggle" name="wifi_enable" checked onchange="toggleSection('wifi')">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="fields active" id="wifi_fields">
+                <div class="input-group">
+                    <span class="tag">名称</span>
+                    <input type="text" placeholder="输入 WiFi 名称" name="wifi_ssid" id="ssid" maxlength="32">
+                </div>
+                <div class="input-group">
+                    <span class="tag">密码</span>
+                    <input type="password" placeholder="留空则为开放网络" name="wifi_password" id="password"
+                        onkeyup="value=value.replace(/[\u4E00-\u9FA5]/g,'')">
+                </div>
+                <div class="input-group">
+                    <span class="tag">MAC</span>
+                    <input type="text" placeholder="aa:bb:cc:dd:ee:ff" name="wifi_mac" id="mac"
+                        pattern="([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})">
+                </div>
+            </div>
         </div>
 
-        <!-- WiFi 配置区 -->
-        <div class="wifi-section active" id="wifi_section">
-            <span class="section-title">📶 WiFi 配置</span>
-            <input type="text" placeholder="WiFi名称（必填）" name="wifi_ssid" id="ssid" maxlength="32">
-            <input type="password" placeholder="WiFi密码（至少8位或留空）" name="wifi_password" id="password"
-                onkeyup="value=value.replace(/[\u4E00-\u9FA5]/g,'')">
-            <input type="text" placeholder="MAC地址 (aa:bb:cc:dd:ee:ff)" name="wifi_mac" id="mac"
-                pattern="([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})">
+        <!-- ===== BLE ===== -->
+        <div class="section ble">
+            <div class="section-header">
+                <span class="label"><span class="dot ble-dot"></span>蓝牙模拟</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="ble_toggle" name="ble_enable" checked onchange="toggleSection('ble')">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="fields active" id="ble_fields">
+                <div class="input-group">
+                    <span class="tag">UUID</span>
+                    <input type="text" placeholder="MAC地址 或 128-bit UUID" name="ble_uuid" id="ble_uuid" maxlength="36"
+                        value="3132A97F-FA40-D56B-04E0-8562E0D3AEE6">
+                </div>
+                <span class="hint">支持 MAC (aa:bb:cc…) 或 UUID (xxx-xxx…)，MAC地址自动派生</span>
+            </div>
         </div>
 
-        <div class="divider"></div>
-
-        <!-- ===== 蓝牙开关 ===== -->
-        <div class="toggle-row">
-            <span class="toggle-label">📡 蓝牙模拟</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="ble_toggle" name="ble_enable" onchange="toggleSection('ble')">
-                <span class="slider"></span>
-            </label>
+        <div class="btn-area">
+            <button type="submit">保存配置</button>
         </div>
-
-        <!-- 蓝牙配置区 -->
-        <div class="ble-section" id="ble_section">
-            <span class="section-title">🔵 蓝牙配置</span>
-            <input type="text" placeholder="蓝牙MAC地址 (aa:bb:cc:dd:ee:ff)"
-                   name="ble_mac" id="ble_mac"
-                   pattern="([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})">
-            <span class="hint">用 nRF Connect 扫描目标设备，复制信号最强的 MAC</span>
-            <textarea placeholder="蓝牙广播原始数据&#10;格式: 02,01,06,17,FF,00,...&#10;用 nRF Connect 复制 Raw 数据"
-                      name="ble_raw" id="ble_raw" rows="3"></textarea>
-            <span class="hint">逗号分隔的十六进制字节，超过31字节自动作为扫描响应数据</span>
-        </div>
-
-        <button type="submit">💾 保存配置</button>
     </form>
+
+    <div class="status-bar">
+        <span class="status-dot on"></span>
+        关闭WiFi后无法访问配置页，需长按按键恢复
+    </div>
 
     <div id="popup">
         <span id="message"></span>

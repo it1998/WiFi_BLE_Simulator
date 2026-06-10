@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi/蓝牙设置</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px 0;
+            min-height: 100vh;
+            background: #f5f5f5;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin: 10px 0;
+        }
+        .section-title {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            margin-bottom: 8px;
+            padding: 4px 12px;
+            background: #e8e8e8;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .container {
+            display: flex;
+            flex-flow: column;
+            padding: 20px;
+            background: #fff;
+            border-radius: 10px;
+            width: 86%;
+            max-width: 380px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
+        }
+        input, textarea {
+            padding: 12px;
+            margin: 8px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 15px;
+            font-family: monospace;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus {
+            border-color: #4a90d9;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        button {
+            padding: 12px;
+            background-color: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 17px;
+            font-weight: 600;
+            margin-top: 12px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #0056cc;
+        }
+        button:active {
+            background-color: #004499;
+        }
+        /* 蓝牙开关 */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            margin: 4px 0;
+        }
+        .toggle-label {
+            font-size: 15px;
+            color: #333;
+            font-weight: 500;
+        }
+        .toggle-switch {
+            position: relative;
+            width: 48px;
+            height: 26px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            margin: 0;
+            padding: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            border-radius: 26px;
+            transition: 0.3s;
+        }
+        .slider::before {
+            content: "";
+            position: absolute;
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        input:checked + .slider {
+            background-color: #007AFF;
+        }
+        input:checked + .slider::before {
+            transform: translateX(22px);
+        }
+        .ble-section, .wifi-section {
+            display: none;
+        }
+        .ble-section.active, .wifi-section.active {
+            display: flex;
+            flex-flow: column;
+        }
+        .hint {
+            font-size: 11px;
+            color: #999;
+            margin: -4px 0 4px 2px;
+        }
+        .divider {
+            height: 1px;
+            background: #e0e0e0;
+            margin: 12px 0 8px 0;
+        }
+        #popup {
+            visibility: hidden;
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.82);
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 999;
+            white-space: nowrap;
+            max-width: 90vw;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>⚙️ WiFi/蓝牙设置</h2>
+
+    <form action="" method="post" id="info_form" class="container">
+
+        <!-- ===== WiFi 开关 ===== -->
+        <div class="toggle-row">
+            <span class="toggle-label">📶 WiFi 伪装</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="wifi_toggle" name="wifi_enable" checked onchange="toggleSection('wifi')">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <!-- WiFi 配置区 -->
+        <div class="wifi-section active" id="wifi_section">
+            <span class="section-title">📶 WiFi 配置</span>
+            <input type="text" placeholder="WiFi名称（必填）" name="wifi_ssid" id="ssid" maxlength="32">
+            <input type="password" placeholder="WiFi密码（至少8位或留空）" name="wifi_password" id="password"
+                onkeyup="value=value.replace(/[\u4E00-\u9FA5]/g,'')">
+            <input type="text" placeholder="MAC地址 (aa:bb:cc:dd:ee:ff)" name="wifi_mac" id="mac"
+                pattern="([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})">
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- ===== 蓝牙开关 ===== -->
+        <div class="toggle-row">
+            <span class="toggle-label">📡 蓝牙模拟</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="ble_toggle" name="ble_enable" onchange="toggleSection('ble')">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <!-- 蓝牙配置区 -->
+        <div class="ble-section" id="ble_section">
+            <span class="section-title">🔵 蓝牙配置</span>
+            <input type="text" placeholder="蓝牙MAC地址 (aa:bb:cc:dd:ee:ff)"
+                   name="ble_mac" id="ble_mac"
+                   pattern="([0-9A-Fa-f]{2}[:\-]){5}([0-9A-Fa-f]{2})">
+            <span class="hint">用 nRF Connect 扫描目标设备，复制信号最强的 MAC</span>
+            <textarea placeholder="蓝牙广播原始数据&#10;格式: 02,01,06,17,FF,00,...&#10;用 nRF Connect 复制 Raw 数据"
+                      name="ble_raw" id="ble_raw" rows="3"></textarea>
+            <span class="hint">逗号分隔的十六进制字节，超过31字节自动作为扫描响应数据</span>
+        </div>
+
+        <button type="submit">💾 保存配置</button>
+    </form>
+
+    <div id="popup">
+        <span id="message"></span>
+    </div>
+</body>
+
+<script src="script.js" defer></script>
+
+</html>

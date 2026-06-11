@@ -79,6 +79,8 @@ pio device monitor            # 查看串口日志
 - 只需填写一个 UUID，MAC 地址自动派生
 - 采用 128-bit Service UUID 广播方式，MAC 地址自动从 UUID 派生
 
+![配置页面截图](images/setup.png)
+
 ### 独立开关
 
 | WiFi | BLE | 效果 |
